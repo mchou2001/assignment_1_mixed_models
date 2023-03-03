@@ -1,0 +1,586 @@
+---
+title: "Assignment 1: Mixed Models"
+author: "10466486"
+output: 
+  html_document: 
+    toc: TRUE
+    toc_float: TRUE
+    toc_depth: 3
+    number_sections: FALSE
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We are going to utilize mixed models built in R version 4.2.1 (2022-06-23) to answer two questions for two different data sets. 
+
+The first question was related to a one factor repeated measures design where participants were asked to respond to words appearing in different emotional contexts. We wanted to find out whether the contexts word appeared in influenced people's speed of response.
+
+The second question was related to a 2 by 2 repeated measures design where participants were first presented with a emotional story as a prime, before being asked to respond to faces with expressions congruent or incongruent to the prime. We wanted to find out how fast faces displaying emotions congruent or incongruent to the prime were attended to.
+
+# Question 1: Touching Words
+
+**What is the effect of words with different emotions on reaction time?**
+
+A repeated measures design where 24 participants asked to respond to words appearing in neutral, negative, or positive emotional contexts. 24 word items were used and the reaction time measured in milliseconds was taken.
+
+We first need to load all the package relevant for the first question. 
+
+```{r load_package_1, message = FALSE}
+
+library(tidyverse)    # for various commands like read.csv and mutate to handle data
+
+library(visdat)       # for missing value visualization
+
+library(lme4)         # for building mixed models
+
+library(emmeans)      # for Post Hoc tests
+
+library(performance)  # to check for normality
+
+```
+
+## Reading and Tidying the Data {.tabset .tabset-fade .tabset-pills}
+
+We will load in the data set and tidy the data into a format easier to work with. We will also see if there are any missing values that should be removed.
+
+### Raw Data
+
+Retrieve the raw data.
+
+```{r raw_data_1, message=FALSE}
+
+raw_data_1 <- read.csv("assignment1_data1.csv") # store read data into variable
+
+```
+
+Outline of the data frame:
+
+```{r raw_data_frame_1, echo=FALSE}
+
+str(raw_data_1)
+
+```
+
+First 6 rows:
+
+```{r raw_data_head_1, echo=FALSE}
+
+head(raw_data_1)
+
+```
+
+### Missing Values
+
+There does not seem to be any missing values.
+
+```{r missing_data}
+
+vis_miss(raw_data_1) # creates visualization for any missing values
+
+```
+
+### Tidying data
+
+Since there are no missing values to deal with the tidying process only requires minor changes. The format of the data is kept consistent with snake case. Variables such as condition, item, and subject were changed to factor type.
+
+```{r tidy_data_1}
+
+tidied_data_1 <- raw_data_1 %>% 
+  rename(                                  # renames variables to complete meaningful words
+    "subject" = "subj",
+    "response_time" = "DV"                 # snake case per tidyverse format
+         ) %>%
+  mutate(                                  # change condition to a factor
+    condition = factor(tolower(condition)) # change all to lower case
+         )
+
+tidied_data_1$subject <- as.factor(gsub("S", "", tidied_data_1$subject)) # append values in subject
+
+# gsub parameters: (letter to replace, replace with nothing, look for letter in subject)
+# as.factor: change to factor after gsub as it will override to change variable to character
+
+tidied_data_1$item <- as.factor(gsub("I", "", tidied_data_1$item)) # appends values in item 
+
+# gsub: replaces letter 'I' with blank space
+# as.factor: change item to factor
+
+```
+
+### Final Data
+
+Outline of the data frame:
+
+```{r data_frame, echo=FALSE}
+
+str(tidied_data_1)
+
+```
+
+First 6 rows:
+
+```{r data_head, echo=FALSE}
+
+head(tidied_data_1)
+
+```
+
+## Understanding the Data {.tabset .tabset-fade .tabset-pills}
+
+We will now seek to understand the data a bit more by exploring descriptives and creating visualizations.
+
+### Mean and Standard Deviation
+
+From the output we can see that people are reacting to the negative condition the fastest, then the neutral, and finally the positive condition. Each condition differs by around 100ms from each other starting from the negative condition.
+
+```{r mean_sd_des}
+
+tidied_data_1 %>%
+  group_by(condition) %>% # groups same conditions together
+  summarise(
+    mean = mean(response_time), # calculate mean
+    standard_deviation = sd(response_time) # calculate standard deviation
+            ) %>%
+  arrange(mean) # organize output by smallest to largest mean
+
+```
+
+From the violin distribution plot we can see observe it visually. As seen in the descriptives above each group differs from each other with the negative condition being the fastest and the positive condition being the slowest to respond to. 
+
+However, the standard deviations are large and overlapping for all conditions. We will need to run significance testing to see if this difference is meaningful.
+
+```{r violin_plot}
+
+set.seed(1) # keeps random elements of the plot consistent 
+
+tidied_data_1 %>%
+  ggplot(aes(
+             x = fct_reorder(condition, response_time), # set x; reorders by ascending response time
+             y = response_time,                         # set y
+             color = condition                          # color change by condition
+             )
+         ) +
+  geom_violin(alpha = .5) +             # create violin; set transparency
+  geom_jitter(alpha = .5, width = .1) + # create jitter; set transparency; set distance of points
+  stat_summary(
+               fun.data = "mean_sdl", # plot standard deviation
+               geom = "pointrange",   # shape of standard deviation
+               color = "black"        # set color
+               ) +
+  guides(color = "none") + # remove legends
+  labs(
+       x = "Context",                                    # label x
+       y = "Response Time (ms)",                         # label y
+       title = "Effect of Word Context on Response Time" # label title
+       ) +
+  theme_minimal() + # use preset theme
+  theme(plot.title = element_text(hjust = .5) # center title
+        )
+
+```
+
+### Range
+
+Here we can use slightly different descriptive values to a picture the data. Based on the median we see the same pattern as the mean. People react to the negative condition fastest, then neutral, then react to positive condition the slowest. 
+
+```{r distribution_des}
+
+tidied_data_1 %>%
+  group_by(condition) %>% # groups same conditions together
+  summarise(
+            min = min(response_time),                       # calculate minimum
+            median = median(response_time),                 # calculate median
+            max = max(response_time),                       # calculate maximum 
+            range = max(response_time) - min(response_time) # calculate range
+            ) %>%
+  arrange(median) # arrange by median from smallest to largest
+
+```
+
+A box plot shows these descriptives more clearly. Each conditions has a similar distribution as seen by the range and interquartile range.
+
+```{r box_plot}
+
+tidied_data_1 %>%
+  ggplot(aes(
+             x = condition,     # set x
+             y = response_time, # set y
+             color = condition  # color by condition
+             )
+         ) +
+  geom_boxplot(alpha = .8) + # create box plot; change transparency
+  guides(color = "none") + # remove legend
+  labs(
+       x = "Context",                                    # label x
+       y = "Response Time (ms)",                         # label y
+       title = "Effect of Word Context on Response Time" # label title
+       ) +
+  theme_minimal() + # use preset theme
+  theme(plot.title = element_text(hjust = .5) # center title
+        )
+
+```
+
+## Building Models {.tabset .tabset-fade .tabset-pills}
+
+In this section we will build models and check the model assumptions before conducting significance testing.
+
+### Mixed Linear Model
+
+We will build a mixed linear model by setting the dependent (response time) by independent (condition). Random effects are appointed to add more realism to the model. By including a variable as random effect indicate our recognition that the variable is representative of only a certain portion of a larger pool of data. 
+
+In our case, subject is chosen as we assume out subject is a sample potentially representative of a larger population. Item is chosen as we assume that the words use represent only a limited number of possible words.
+
+```{r mixed_model_1}
+
+mixed_model_1 <- lmer(
+                      response_time ~ condition + # set linear model response time by condition
+                      (1 | subject) +             # subject as random effect 
+                      (1 | item),                 # items as random effect
+                      data = tidied_data_1        # select data set
+                      )
+
+```
+
+### Checking assumptions
+
+By check visually we can see that:
+
+* Posterior Predictive Check: Has bell shaped curve
+* Linearity: Not violated as the points are relatively equal when distributed around the line
+* Homogeneity: Not violated as the points are relatively equal when distributed around the line
+* Outliers: There are a few extreme points
+* Normality of Response Time: Distribution is normal as points stick close to the line
+* Normality of Subject and Item: Distribution of both random effects look normal as the points stick close to the line
+
+We will proceed with our model as there doesn't seem to be any major violations
+
+```{r assumptions_1, eval=FALSE}
+
+check_model(mixed_model_1) # check assumptions
+
+```
+
+```{r assumption_hide, echo=FALSE, fig.width=10, fig.height=10}
+
+check_model(mixed_model_1)
+
+```
+
+
+## T-test {.tabset .tabset-fade .tabset-pills}
+
+### Results
+
+Dependent sample t-tests adjusted by bonferroni method were conducted to find the effect of word context on response time. We found a significant difference between contexts from the negative (*M* = 1088, *SD* = 565) and positive condition (*M* = 1257, *SD* = 553), *t*(524) = 3.67, *p* < .001. No significant difference were for neutral conditions (*M* = 1185, *SD* = 562) for either negative or positive conditions, *t*(524) = 2.11, *p* = .106 and *t*(524) = 1.56, *p* = .359 respectively.
+
+```{r results_1_show, echo=FALSE}
+
+emmeans(mixed_model_1, pairwise ~ condition, adjust = "bonferroni") # conduct t-test comparison
+
+# scores adjusted by bonferroni correction
+
+```
+
+```{r results_1, eval=FALSE}
+
+emmeans(mixed_model_1, pairwise ~ condition, adjust = "bonferroni") # conduct t-test comparison
+
+# scores adjusted by bonferroni correction
+
+```
+
+### Conclusion
+
+**What is the effect of words with different emotions on reaction time?**
+
+Positive words seem to take the longest for people to react to while negative words seem to take the shortest amount of time. They differ by a time of around 171 milliseconds.
+
+# Question 2: Primed for Faces
+
+**How does being primed for certain emotions affect people's reaction time to different facial expressions?**
+
+A 2 by 2 repeated measures design was conducted for 32 participants reacting to either angry or fearful facial expressions. A total of 32 different faces were shown. Beforehand, they were exposed to emotionally charged stories describing either a anger or fear inducing situation. Participant reaction times were measured in milliseconds.
+
+We will load the necessary packages:
+
+```{r load_package_2, message = FALSE}
+
+library(tidyverse)    # for various commands like read.csv and mutate to handle data
+
+library(visdat)       # for missing value visualization
+
+library(lme4)         # for building mixed models
+
+library(emmeans)      # for Post Hoc tests
+
+library(performance)  # to check for normality
+
+library(fitdistrplus) # to check for distribution fit
+
+```
+
+## Reading and Tidying the Data {.tabset .tabset-fade .tabset-pills}
+
+We will load and tidy the data just as we did for the first question keeping the format consistent.
+
+### Raw Data
+Retrieve the raw data:
+```{r raw_data_2}
+
+raw_data_2 <- read.csv("assignment1_data2.csv")
+
+```
+
+Outline of the data frame:
+
+```{r raw_data_frame_2, echo=FALSE}
+
+str(raw_data_2)
+
+```
+
+First 6 rows:
+
+```{r raw_data_head_2, echo=FALSE}
+
+head(raw_data_2)
+
+```
+
+### Missing Values
+
+There does not seem to be any missing values.
+
+```{r missing_data_2}
+
+vis_miss(raw_data_2) # creates visualization for any missing values
+
+```
+
+### Tidying Data
+
+Here we change the variable names and their values into a consistent format. The variables are then changed into the correct type.
+
+```{r tidy_data_2}
+
+tidied_data_2 <- raw_data_2 %>%
+  rename(
+         "subject" = "Subject", # rename each variable into meaningful words and snake case
+         "vignette" = "Vignette",
+         "story_emotion" = "StoryEmotion",
+         "face_expression" = "FaceExpression",
+         "reaction_time" = "RT"
+         ) %>%
+  mutate(
+         story_emotion = factor(tolower(story_emotion)), # values to lower case, then to factors
+         face_expression = factor(tolower(face_expression))
+         )
+
+
+```
+
+### Final Data
+
+Outline of the data frame:
+
+```{r data_frame_2, echo=FALSE}
+
+str(tidied_data_2)
+
+```
+
+First 6 rows:
+
+```{r data_head_2, echo=FALSE}
+
+head(tidied_data_2)
+
+```
+
+## Understanding the Data
+
+From the mean results we can see that people react to congruent conditions faster for both angry and fearful primes than incongruent conditions. There is a greater difference in reaction time between incongruent and congruent trials for angry (`r 2633.699 - 1848.262` milliseconds) than for fearful emotions (`r 2524.817 - 2027.631` milliseconds).
+
+```{r mean_sd_des_2, eval=FALSE}
+
+tidied_data_2 %>%
+  group_by(story_emotion, face_expression) %>%     # groups same story and face condition together
+  summarise(
+            mean = mean(reaction_time),            # calculate mean 
+            standard_deviation = sd(reaction_time) # calculate standard deviation
+            ) %>%
+  arrange(.by_group = TRUE, -mean)                 # arrange mean largest to smallest mean
+
+# arrange: by default it would arrange from smallest to largest value, "-" inverts the order
+# arrange: by default arrange ignores groupings specified
+
+```
+
+```{r mean_sd_des_2_show, echo=FALSE, message=FALSE}
+
+tidied_data_2 %>%
+  group_by(story_emotion, face_expression) %>%     # groups same story and face condition together
+  summarise(
+            mean = mean(reaction_time),            # calculate mean 
+            standard_deviation = sd(reaction_time) # calculate standard deviation
+            ) %>%
+  arrange(.by_group = TRUE, -mean)                 # arrange mean largest to smallest mean
+
+# arrange: by default it would arrange from smallest to largest value, "-" inverts the order
+# arrange: by default arrange ignores groupings specified
+
+```
+
+We can observe the data distribution visually with a violin plot. Incongruent trials for both angry and fearful prime had longer reaction times, while congruent trials had faster reaction times. 
+
+Further significance testing is needed to see whether a difference truly exists.
+
+```{r violin_plot_2, fig.width=10, fig.height=8}
+prime_label <- c(
+                 anger = "Angry Prime", # create character vectors to be used as lookup table 
+                 fear = "Fearful Prime"
+                 ) 
+
+set.seed(1) # allows random aspects fo "geom_jitter" to be reproducible
+
+tidied_data_2 %>%
+  ggplot(aes(
+             x = story_emotion:face_expression,    # set x values by both conditions
+             y = reaction_time,                    # set y values
+             color = story_emotion:face_expression # separate groups by color
+             )
+         ) +
+  geom_violin(alpha = .5) +               # create violin; change transparency
+  geom_jitter(alpha = .5, width = .1) +   # create jitter; change transparency; change point distance
+  stat_summary(
+               fun.data = "mean_cl_boot", # 95% confidence level without assuming normality
+               color = "black"            # change color to black
+               ) +
+  guides(color = "none") +                # removes legend
+  labs(
+       x = "Facial Expression",           # label x, y, and title
+       y = "Reaction Time (ms)",
+       title = "Reaction time of Congruency of Primed Emotion on Emotional Facial Expression"
+       ) +
+  facet_wrap(
+             ~ story_emotion,                                 # wraps plot into separate panels 
+             scale = "free_x",                                # free scale for x in each panel
+             labeller = labeller(story_emotion = prime_label) # changes label based on lookup table
+             ) + 
+  scale_x_discrete(
+                   labels = c(
+                              "Congruent (Anger)", # change x tick labels
+                              "Incongruent (Fear)", 
+                              "Incongruent (Anger)", 
+                              "Congruent (Fear)"
+                              )
+                   ) + 
+  theme(plot.title = element_text(hjust = .5))                     # center title
+
+```
+
+## Building Models {.tabset .tabset-fade .tabset-pills}
+
+We are going to build linear mixed models and check for assumptions. 
+
+### Setting Contrasts
+
+Changing the contrasts tells R to look at the data differently. Instead of looking at simple effects between each condition, we will look at main effects as with conditions compared to a grand mean (as will be shown by the intercept when looking at the result outputs).
+
+```{r contrasts}
+
+contrasts(tidied_data_2$story_emotion) <- matrix(c(.5, -.5)) # change contrasts for condition 1
+
+contrasts(tidied_data_2$face_expression) <- matrix(c(.5, -.5)) # change contrasts for condition 2
+
+# default uses matrix(c(0, 1) which interprets simple effects
+
+```
+
+### Mixed Linear Model
+
+We will build a mixed linear model by setting the dependent (reaction time) by the 2 independent conditions (story emotion and face expression), and explore the interaction effects between the two. Random effects are assumed for subject and the items (vignettes).
+
+```{r mixed_model_2}
+
+mixed_model_2 <- lmer(
+                      reaction_time ~ story_emotion * face_expression + # set model by 2 conditions
+                      (1 | subject) +                                   # subject as random effect
+                      (1 | vignette),                                   # vignette as random effect 
+                      data = tidied_data_2                              # select data set
+                      )
+
+```
+
+### Checking Assumptions
+
+Visually inspecting the assumptions we can see that:
+
+* Posterior Predictive Check: Has leptokurtic curve with high kurtosis
+* Linearity: Violated
+* Homogeneity: Violated 
+* Collinearity: Low and not violated
+* Normality of Reaction Time: Points depart from normal towards the right
+* Normality of Subject: Distribution of random effects for subject look departs from line
+* Normality of Item: Distribution of random effects for item look normal as the points stick close to the line
+
+We will move onto results keeping in mind the violation of normality.
+
+```{r checking_assumptions_2, fig.width=10, fig.height=10}
+
+check_model(mixed_model_2)
+
+```
+
+## T-test {.tabset .tabset-fade .tabset-pills}
+
+### Results
+
+From the summary statistics we can see there was only a significant interaction effect. *t*(869) = 9.25, *p* < .001,
+
+```{r results_2}
+
+summary(mixed_model_2) # gives summary of results
+
+```
+
+### Post Hoc T-tests
+
+Post hoc t-tests adjusted by bonferroni method were conducted to find the interaction effect of the prime condition of story context and facial expression. We found a significant difference between the incongruent and congruent conditions for angry prime, *t*(846) = 7.93, *p* < .001. We found a significant difference between the incongruent and congruent condition for fearful prime, *t*(873) = 5.54, *p* < .001.
+
+```{r eval=FALSE}
+
+emmeans(mixed_model_2, pairwise ~ story_emotion * face_expression, adjust = "bonferroni") 
+
+# conduct t-test comparisons
+# bonferroni corrections made
+
+```
+
+```{r echo=FALSE}
+
+emmeans(mixed_model_2, pairwise ~ story_emotion * face_expression, adjust = "bonferroni") 
+
+# conduct t-test comparisons
+# bonferroni corrections made
+
+```
+
+### Conclusion
+
+**How does being primed for certain emotions affect people's reaction time to different facial expressions?**
+
+People took longer to react to both fearful and angry facial expressions when the emotional prime was incongruent. People were faster to react when the emotional prime matched the facial expression presented.
+
+### Distribution Fit
+
+Based on the violation of normal we can test for the distribution fit. We see that the distribution is not a normal as assumed but closer to a beta distribution. This would influence the valididty of the conclusion
+
+```{r distribution}
+
+descdist(tidied_data_2$reaction_time) # test for distribution fit
+
+```
+
